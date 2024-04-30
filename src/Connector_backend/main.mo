@@ -8,7 +8,7 @@ import Principal "mo:base/Principal";
 import Error "mo:base/Error";
 import Map "mo:map/Map";
 import { thash; phash } "mo:map/Map";
-actor class Connector() = this {
+actor class Connector(owner:Principal) = this {
 
   type ILPAddress = Text;
   type Chain = Token.Chain;
@@ -40,6 +40,11 @@ actor class Connector() = this {
       case (?exist) exist;
       case (_) throw (Error.reject("Not Found"));
     };
+  };
+
+  public shared({caller}) func setToken(token:Token) : async () {
+    assert(caller == owner);
+    Map.set(tokens, thash, token.symbol, token);
   };
 
   private func _isSupported(symbol:Text): Bool {
