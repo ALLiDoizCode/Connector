@@ -1,4 +1,6 @@
 import Time "mo:base/Time";
+import ILPErrorCode "ILPErrorCodes";
+
 module {
 
     public type Packet = {
@@ -24,7 +26,7 @@ module {
     };
 
     public type Reject = {
-        code:Text;
+        code:ILPErrorCode.ILPErrorCode;
         triggeredBy:Text;
         message:Text;
         data:Blob;

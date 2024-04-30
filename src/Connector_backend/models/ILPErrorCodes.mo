@@ -7,6 +7,11 @@ module ILPErrorCodes {
     };
 
     public let ILP_ERRORS = {
+        timedOut = {
+            code = "R00";
+            name = "Transfer Timed Out";
+            message = "The transfer timed out, meaning the next party in the chain did not respond. This could be because you set your timeout too low or because something took longer than it should. The sender MAY try again with a higher expiry, but they SHOULD NOT do this indefinitely or a malicious connector could cause them to tie up their money for an unreasonably long time.";
+        };
         invalidPacket = {
             code = "F00";
             name = "Invalid Packet";
