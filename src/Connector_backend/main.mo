@@ -39,14 +39,14 @@ actor class Connector(owner : Principal) = this {
 
   public shared ({ caller }) func prepare(packet : Prepare) : async Packet {
     let result = await _prepare(caller, packet);
-    switch(result.data){
-      case(#FulFill(value)){
+    switch (result.data) {
+      case (#FulFill(value)) {
         //transfers funds
         //let token = await* _link(value.destination);
-        result
+        result;
       };
-      case(_){
-        result
+      case (_) {
+        result;
       };
     };
   };
@@ -70,11 +70,11 @@ actor class Connector(owner : Principal) = this {
           //send prepare call to the longest prefix if ILPAddress isn't this cansiter
           //if response packet is fulfill then transfer token or preform some action and return fulfill packet
           //if response packet is a reject packet don't preform any actions and return reject packet
-          let fulfill:Packet = {
+          let fulfill : Packet = {
             id = 13;
-            data = #FulFill({data = Blob.fromArray([])})
+            data = #FulFill({ data = Blob.fromArray([]) });
           };
-          return fulfill
+          return fulfill;
         } catch (e) {
           return Utils.createReject(ILP_Address, "Peer Not Configured", value.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
         };
@@ -92,16 +92,7 @@ actor class Connector(owner : Principal) = this {
         let exist = Map.get(tokens, thash, symbol);
         switch (exist) {
           case (?token) {
-            let _this = Principal.fromActor(this);
-            let scheme = "g";
-            let separator = ".";
-            let parent = Principal.toText(_this);
-            let child = Principal.toText(caller);
-            let ilpAddress = scheme #separator #parent #separator #child;
-            Map.set(routingTable, thash, ilpAddress, #ICP(child));
-            Map.set(addresses, phash, caller, ilpAddress);
-            Map.set(links, thash, ilpAddress, token);
-            let data = Text.encodeUtf8(ilpAddress);
+            let data = _createChild(caller,token);
             return {
               id = 13;
               data = #FulFill({ data = data });
@@ -162,6 +153,20 @@ actor class Connector(owner : Principal) = this {
       case (?exist) true;
       case (_) false;
     };
+  };
+
+  private func _createChild(caller:Principal,token:Token):Blob {
+    let _this = Principal.fromActor(this);
+    let scheme = "g";
+    let separator = ".";
+    let parent = Principal.toText(_this);
+    let child = Principal.toText(caller);
+    let ilpAddress = scheme #separator #parent #separator #child;
+    Map.set(routingTable, thash, ilpAddress, #ICP(child));
+    Map.set(addresses, phash, caller, ilpAddress);
+    Map.set(links, thash, ilpAddress, token);
+    let data = Text.encodeUtf8(ilpAddress);
+    data
   };
 
   /*public shared func commit(amount : Nat) : async [Nat8] {
