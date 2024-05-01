@@ -36,16 +36,23 @@ actor class Connector(owner : Principal) = this {
   stable let fulfillment = Map.new<Text, ICRC2.TransferArg>();
   stable let commitment = Map.new<Text, Nat>();
   stable var ILP_Address = "";
+  stable var wasm_hash = Blob.fromArray([]);
 
   public shared ({ caller }) func prepare(packet : Prepare) : async Packet {
+    //get the token associated with the caller aka link
+    //make a tranferFrom call or equavalent
+    //if successful create a prepare packet 
+    //let token = await* _link(value.destination);
     let result = await _prepare(caller, packet);
     switch (result.data) {
       case (#FulFill(value)) {
-        //transfers funds
+        //if response packet is fulfill get the token associated with the caller aka link 
+        //then transfer token or preform some action and return fulfill packet
         //let token = await* _link(value.destination);
         result;
       };
       case (_) {
+        //if response packet is a reject packet don't preform any actions and return reject packet
         result;
       };
     };
@@ -68,8 +75,6 @@ actor class Connector(owner : Principal) = this {
           //get longest prefix if ILPAddress isn't this canister
           //build prepare packet and modify amount and time
           //send prepare call to the longest prefix if ILPAddress isn't this cansiter
-          //if response packet is fulfill then transfer token or preform some action and return fulfill packet
-          //if response packet is a reject packet don't preform any actions and return reject packet
           let fulfill : Packet = {
             id = 13;
             data = #FulFill({ data = Blob.fromArray([]) });
@@ -83,6 +88,8 @@ actor class Connector(owner : Principal) = this {
   };
 
   private func _configureChild(caller : Principal, value : Prepare) : async Packet {
+    let isConnector = await Utils.verifyCanister(caller, wasm_hash);
+    if(isConnector == false) return Utils.createReject(ILP_Address, "wasm module is not correct or controllers listed is not blackholed", value.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
     switch (Text.decodeUtf8(value.data)) {
       case (?symbol) {
         let isSupported = _isSupported(symbol);
