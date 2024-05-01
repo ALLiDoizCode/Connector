@@ -52,18 +52,18 @@ actor class Connector(owner : Principal) = this {
   };
 
   private func _prepare(caller : Principal, value : Prepare) : async Packet {
-    var address = "";
-    try {
-      address := await* _ilpAddress(caller);
-    } catch (e) {
-      return Utils.createReject(ILP_Address, Error.message(e), value.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
-    };
-    if (value.expiresAt < Time.now()) {
-      return Utils.createReject(ILP_Address, "Expired", value.data, ILPErrorCodes.ILP_ERRORS.timedOut);
-    };
     switch (value.destination) {
       case ("peer.config") await _configureChild(caller, value);
       case (_) {
+        var address = "";
+        try {
+          address := await* _ilpAddress(caller);
+        } catch (e) {
+          return Utils.createReject(ILP_Address, Error.message(e), value.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
+        };
+        if (value.expiresAt < Time.now()) {
+          return Utils.createReject(ILP_Address, "Expired", value.data, ILPErrorCodes.ILP_ERRORS.timedOut);
+        };
         try {
           //get longest prefix if ILPAddress isn't this canister
           //build prepare packet and modify amount and time
@@ -92,7 +92,7 @@ actor class Connector(owner : Principal) = this {
         let exist = Map.get(tokens, thash, symbol);
         switch (exist) {
           case (?token) {
-            let data = _createChild(caller,token);
+            let data = _createChild(caller, token);
             return {
               id = 13;
               data = #FulFill({ data = data });
@@ -155,7 +155,7 @@ actor class Connector(owner : Principal) = this {
     };
   };
 
-  private func _createChild(caller:Principal,token:Token):Blob {
+  private func _createChild(caller : Principal, token : Token) : Blob {
     let _this = Principal.fromActor(this);
     let scheme = "g";
     let separator = ".";
@@ -166,7 +166,7 @@ actor class Connector(owner : Principal) = this {
     Map.set(addresses, phash, caller, ilpAddress);
     Map.set(links, thash, ilpAddress, token);
     let data = Text.encodeUtf8(ilpAddress);
-    data
+    data;
   };
 
   /*public shared func commit(amount : Nat) : async [Nat8] {
