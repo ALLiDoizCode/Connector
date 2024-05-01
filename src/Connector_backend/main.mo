@@ -75,22 +75,35 @@ actor class Connector(owner : Principal) = this {
           //get longest prefix if ILPAddress isn't this canister
           //build prepare packet and modify amount and time
           //send prepare call to the longest prefix if ILPAddress isn't this cansiter
-          /*let canister = _getLongestPrefix();
-          let preparePacket : Packet = {
-            id = 12;
-            data = #FulFill({ data = Blob.fromArray([]) });
+          let ilpAddress = Utils.getLongestPrefix(value.destination, Iter.toArray(Map.vals(addresses)));
+          switch (ilpAddress) {
+            case (?ilpAddress) {
+              let hop = await* _nextHop(ilpAddress);
+              switch (hop) {
+                case (#BTC(address)) return Utils.createReject(ILP_Address, "Chain Not Supported", value.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
+                case (#ETH(address)) return Utils.createReject(ILP_Address, "Chain Not Supported", value.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
+                case (#ICP(address)) await _icpHop(address);
+                case (#SOL(address)) return Utils.createReject(ILP_Address, "Chain Not Supported", value.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
+              };
+            };
+            case (_) return Utils.createReject(ILP_Address, "Peer Not Configured", value.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
           };
-          await ConnectorService.service(canister : Text).prepare(preparePacket);*/
-          let fulfill : Packet = {
-            id = 13;
-            data = #FulFill({ data = Blob.fromArray([]) });
-          };
-          return fulfill;
         } catch (e) {
           return Utils.createReject(ILP_Address, "Peer Not Configured", value.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
         };
       };
     };
+  };
+
+  private func _icpHop(canister:Text) : async Packet {
+    // modify amount and time if needed
+    let preparePacket : Prepare = {
+        amount = 0;
+        expiresAt = Time.now();
+        destination = "";
+        data = Blob.fromArray([]);
+    };
+    await ConnectorService.service(canister : Text).prepare(preparePacket);
   };
 
   private func _configureChild(caller : Principal, value : Prepare) : async Packet {
@@ -152,6 +165,14 @@ actor class Connector(owner : Principal) = this {
     };
   };
 
+  private func _nextHop(value : ILPAddress) : async* Chain {
+    let exist = Map.get(routingTable, thash, value);
+    switch (exist) {
+      case (?exist) exist;
+      case (_) throw (Error.reject("Not Found"));
+    };
+  };
+
   private func _link(address : ILPAddress) : async* Token {
     let exist = Map.get(links, thash, address);
     switch (exist) {
@@ -181,10 +202,6 @@ actor class Connector(owner : Principal) = this {
     let data = Text.encodeUtf8(ilpAddress);
     data;
   };
-
-  /*private func _getLongestPrefix() : Text {
-
-  };*/
 
   /*public shared func commit(amount : Nat) : async [Nat8] {
     let g = Source.Source();
