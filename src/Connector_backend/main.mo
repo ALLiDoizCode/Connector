@@ -58,6 +58,19 @@ actor class Connector(owner : Principal) = this {
     };
   };
 
+  public query func ilpAddress(caller : Principal) : async ILPAddress {
+    let exist = Map.get(addresses, phash, caller);
+    switch (exist) {
+      case (?exist) exist;
+      case (_) throw (Error.reject("Not Found"));
+    };
+  };
+
+  public shared ({ caller }) func setToken(token : Token) : async () {
+    assert (caller == owner);
+    Map.set(tokens, thash, token.symbol, token);
+  };
+
   private func _prepare(caller : Principal, value : Prepare) : async Packet {
     switch (value.destination) {
       case ("peer.config") await _configureChild(caller, value);
@@ -142,19 +155,6 @@ actor class Connector(owner : Principal) = this {
         };
       };
     };
-  };
-
-  public query func ilpAddress(caller : Principal) : async ILPAddress {
-    let exist = Map.get(addresses, phash, caller);
-    switch (exist) {
-      case (?exist) exist;
-      case (_) throw (Error.reject("Not Found"));
-    };
-  };
-
-  public shared ({ caller }) func setToken(token : Token) : async () {
-    assert (caller == owner);
-    Map.set(tokens, thash, token.symbol, token);
   };
 
   private func _ilpAddress(caller : Principal) : async* ILPAddress {
