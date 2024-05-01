@@ -10,7 +10,7 @@ module {
 
     public type PacketType = {
         #Prepare:Prepare;
-        #Fulfill:Fulfill;
+        #FulFill:FulFill;
         #Reject:Reject;
     };
 
@@ -21,7 +21,7 @@ module {
         data:Blob;
     };
 
-    public type Fulfill = {
+    public type FulFill = {
         data:Blob;
     };
 
