@@ -38,8 +38,9 @@ actor class Connector(owner : Principal) = this {
   stable var ILP_Address = "";
   stable var wasm_hash = Blob.fromArray([]);
 
-
-  public shared func commit(amount : Nat) : async [Nat8] {
+  public shared ({ caller }) func commit(amount : Nat) : async [Nat8] {
+    // add fee to amount
+    let _ = await* _ilpAddress(caller);
     let g = Source.Source();
     let blob = await g.new();
     let uuid = UUID.toText(blob);
@@ -47,34 +48,65 @@ actor class Connector(owner : Principal) = this {
     blob;
   };
 
-  public shared ({ caller }) func transfer(txIndex : Nat, value:Prepare) : async Packet {
+  public shared ({ caller }) func transfer(txIndex : Nat, packet : Prepare) : async Packet {
     try {
       let ilpAddress = await* _ilpAddress(caller);
       let token = await* _link(ilpAddress);
-      switch(token.chain){
-        case(#ICP(canister)) let _ = await _verifyTransaction(caller, txIndex, ?Nat64.toNat(value.amount), canister);
-        case(#BTC(address)) return Utils.createReject(ILP_Address, "Chain Not Supported", value.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
-        case(#ETH(address)) return Utils.createReject(ILP_Address, "Chain Not Supported", value.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
-        case(#SOL(address)) return Utils.createReject(ILP_Address, "Chain Not Supported", value.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
+      var token_address = "";
+      switch (token.chain) {
+        case (#ICP(canister)) {
+          let _ = await _verifyTransaction(caller, txIndex, ?Nat64.toNat(packet.amount), canister);
+          token_address := canister;
+        };
+        case (#BTC(address)) return Utils.createReject(ILP_Address, "Chain Not Supported", packet.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
+        case (#ETH(address)) return Utils.createReject(ILP_Address, "Chain Not Supported", packet.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
+        case (#SOL(address)) return Utils.createReject(ILP_Address, "Chain Not Supported", packet.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
       };
       //modify the amount and the time based on the cansiters fee and exchange rate
-      await _prepare(caller, value)
+      let result = await _prepare(caller, packet);
+      switch (result.data) {
+        case (#Reject(value)) {
+          let _ = await _transfer(token_address, Nat64.toNat(packet.amount), Principal.toText(caller));
+        };
+        case (_) {
+
+        };
+      };
+      result;
     } catch (e) {
       return Utils.createReject(ILP_Address, Error.message(e), Blob.fromArray([]), ILPErrorCodes.ILP_ERRORS.invalidPacket);
     };
   };
 
   public shared ({ caller }) func prepare(packet : Prepare) : async Packet {
-    //get the token associated with the caller aka link
-    //make a tranferFrom call or equavalent
-    //if successful create a prepare packet
-    //let token = await* _link(value.destination);
+    //add code to block non peers from making this call
+    //add code to allow for a max and min amount
+    var to = "";
+    var address = "";
+    try {
+      //get the token associated with the caller aka link
+      let token = await* _link(packet.destination);
+      let destination = await* _nextHop(packet.destination);
+      switch (destination) {
+        case (#ICP(principal)) to := principal;
+        case (#BTC(address)) return Utils.createReject(ILP_Address, "Chain Not Supported", packet.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
+        case (#ETH(address)) return Utils.createReject(ILP_Address, "Chain Not Supported", packet.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
+        case (#SOL(address)) return Utils.createReject(ILP_Address, "Chain Not Supported", packet.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
+      };
+      switch (token.chain) {
+        case (#ICP(canister)) address := canister;
+        case (#BTC(address)) return Utils.createReject(ILP_Address, "Chain Not Supported", packet.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
+        case (#ETH(address)) return Utils.createReject(ILP_Address, "Chain Not Supported", packet.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
+        case (#SOL(address)) return Utils.createReject(ILP_Address, "Chain Not Supported", packet.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
+      };
+    } catch (e) {
+      return Utils.createReject(ILP_Address, Error.message(e), Blob.fromArray([]), ILPErrorCodes.ILP_ERRORS.invalidPacket);
+    };
     let result = await _prepare(caller, packet);
     switch (result.data) {
       case (#FulFill(value)) {
-        //if response packet is fulfill get the token associated with the caller aka link
-        //then transfer token or preform some action and return fulfill packet
-        //let token = await* _link(value.destination);
+        //transfer token or preform some action and return fulfill packet
+        ignore await _transfer(address, Nat64.toNat(packet.amount), to);
         result;
       };
       case (_) {
@@ -97,50 +129,47 @@ actor class Connector(owner : Principal) = this {
     Map.set(tokens, thash, token.symbol, token);
   };
 
-  private func _prepare(caller : Principal, value : Prepare) : async Packet {
-    if (value.expiresAt < Time.now()) {
-      return Utils.createReject(ILP_Address, "Expired", value.data, ILPErrorCodes.ILP_ERRORS.timedOut);
+  private func _prepare(caller : Principal, packet : Prepare) : async Packet {
+    if (packet.expiresAt < Time.now()) {
+      return Utils.createReject(ILP_Address, "Expired", packet.data, ILPErrorCodes.ILP_ERRORS.timedOut);
     };
-    switch (value.destination) {
-      case ("peer.config") await _configureChild(caller, value);
+    switch (packet.destination) {
+      case ("peer.config") await _configureChild(caller, packet);
       case (_) {
         try {
-          await _hop(value);
+          await _hop(packet);
         } catch (e) {
-          return Utils.createReject(ILP_Address, "Peer Not Configured", value.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
+          return Utils.createReject(ILP_Address, "Peer Not Configured", packet.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
         };
       };
     };
   };
 
-  private func _hop(value : Prepare) : async Packet {
-    //get longest prefix if ILPAddress isn't this canister
-    //build prepare packet and modify amount and time
-    //send prepare call to the longest prefix if ILPAddress isn't this cansiter
-    let ilpAddress = Utils.getLongestPrefix(value.destination, Iter.toArray(Map.vals(addresses)));
+  private func _hop(packet : Prepare) : async Packet {
+    //send prepare call to the longest prefix 
+    //if longest prefix is this canister then make transfer to the last segment in the ILPAddress and return a fulfill packet
+    
+    let ilpAddress = Utils.getLongestPrefix(packet.destination, Iter.toArray(Map.vals(addresses)));
     switch (ilpAddress) {
       case (?ilpAddress) {
         let hop = await* _nextHop(ilpAddress);
+        //query fee for next canister to apply to amount
+        //build prepare packet and modify amount and time
+        let _packet = {
+          amount = packet.amount; //change amount to include fee;
+          expiresAt = packet.expiresAt; //reduce time by 5secs to account for consensus;
+          destination = packet.destination;
+          data = packet.data;
+        };
         switch (hop) {
-          case (#BTC(address)) return Utils.createReject(ILP_Address, "Chain Not Supported", value.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
-          case (#ETH(address)) return Utils.createReject(ILP_Address, "Chain Not Supported", value.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
-          case (#ICP(address)) await _icpHop(address);
-          case (#SOL(address)) return Utils.createReject(ILP_Address, "Chain Not Supported", value.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
+          case (#BTC(address)) return Utils.createReject(ILP_Address, "Chain Not Supported", _packet.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
+          case (#ETH(address)) return Utils.createReject(ILP_Address, "Chain Not Supported", _packet.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
+          case (#ICP(canister)) await ConnectorService.service(canister).prepare(_packet);
+          case (#SOL(address)) return Utils.createReject(ILP_Address, "Chain Not Supported", _packet.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
         };
       };
-      case (_) return Utils.createReject(ILP_Address, "Peer Not Configured", value.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
+      case (_) return Utils.createReject(ILP_Address, "Peer Not Configured", packet.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
     };
-  };
-
-  private func _icpHop(canister : Text) : async Packet {
-    // modify amount and time if needed
-    let preparePacket : Prepare = {
-      amount = 0;
-      expiresAt = Time.now();
-      destination = "";
-      data = Blob.fromArray([]);
-    };
-    await ConnectorService.service(canister : Text).prepare(preparePacket);
   };
 
   private func _configureChild(caller : Principal, value : Prepare) : async Packet {
@@ -227,9 +256,12 @@ actor class Connector(owner : Principal) = this {
     data;
   };
 
-  /*public shared({caller}) func transfer(txIndex : Nat, amount : Nat, destination:Text, token : Text) : async () {
-    let amount = await _verifyTransaction(caller, txIndex, ?amount, token);
-  };*/
+  private func _transfer(canister : Text, amount : Nat, to : Text) : async ICRC2.TransferResult {
+    let _to = { owner = Principal.fromText(to); subaccount = null };
+    let fee = await ICRC2.service(canister).icrc1_fee();
+    let args = Utils._createTransferArg(_to, ?fee, null, amount, null);
+    await ICRC2.service(canister).icrc1_transfer(args);
+  };
 
   private func _verifyTransaction(caller : Principal, txIndex : Nat, amount : ?Nat, token : Text) : async Nat {
     var committedAmount = 0;
