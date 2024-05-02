@@ -8,6 +8,7 @@ import List "mo:base/List";
 import Time "mo:base/Time";
 import Nat64 "mo:base/Nat64";
 import Float "mo:base/Float";
+import Error "mo:base/Error";
 import Canister "../services/Canister";
 import ICRC2 "../services/ICRC2";
 module {
@@ -129,5 +130,17 @@ module {
             if(_count > count) result := ?value;
         };
         result
+    };
+
+    public func lastHop(destination:Text,ilpAddress:Text) : async* Text {
+        let _destination = Iter.toArray(Text.tokens(destination, #text(".")));
+        let size = _destination.size();
+        if(_destination.size() > 1){
+             let _ilpAddress = _destination[size - 2];
+             if(_ilpAddress == ilpAddress) return _destination[size - 1];
+             throw(Error.reject(""))
+        }else{
+            throw(Error.reject(""))
+        }
     };
 };

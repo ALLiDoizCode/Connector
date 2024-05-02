@@ -146,29 +146,47 @@ actor class Connector(owner : Principal) = this {
   };
 
   private func _hop(packet : Prepare) : async Packet {
-    //send prepare call to the longest prefix 
     //if longest prefix is this canister then make transfer to the last segment in the ILPAddress and return a fulfill packet
-    
-    let ilpAddress = Utils.getLongestPrefix(packet.destination, Iter.toArray(Map.vals(addresses)));
-    switch (ilpAddress) {
-      case (?ilpAddress) {
-        let hop = await* _nextHop(ilpAddress);
-        //query fee for next canister to apply to amount
-        //build prepare packet and modify amount and time
-        let _packet = {
-          amount = packet.amount; //change amount to include fee;
-          expiresAt = packet.expiresAt; //reduce time by 5secs to account for consensus;
-          destination = packet.destination;
-          data = packet.data;
+    try {
+      let destination = await* Utils.lastHop(packet.destination, ILP_Address); 
+      let token = await* _link(destination);
+      switch (token.chain) {
+        case (#ICP(canister)) {
+          // adjust amount based on fee
+          let _ = await _transfer(canister, Nat64.toNat(packet.amount), destination);
+          let _packet:Packet = {
+            id = 13;
+            data = #FulFill({data = packet.data})
+          };
+          return _packet
         };
-        switch (hop) {
-          case (#BTC(address)) return Utils.createReject(ILP_Address, "Chain Not Supported", _packet.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
-          case (#ETH(address)) return Utils.createReject(ILP_Address, "Chain Not Supported", _packet.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
-          case (#ICP(canister)) await ConnectorService.service(canister).prepare(_packet);
-          case (#SOL(address)) return Utils.createReject(ILP_Address, "Chain Not Supported", _packet.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
-        };
+        case (#BTC(address)) return Utils.createReject(ILP_Address, "Chain Not Supported", packet.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
+        case (#ETH(address)) return Utils.createReject(ILP_Address, "Chain Not Supported", packet.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
+        case (#SOL(address)) return Utils.createReject(ILP_Address, "Chain Not Supported", packet.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
       };
-      case (_) return Utils.createReject(ILP_Address, "Peer Not Configured", packet.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
+    } catch (e) {
+      //send prepare call to the longest prefix
+      let ilpAddress = Utils.getLongestPrefix(packet.destination, Iter.toArray(Map.vals(addresses)));
+      switch (ilpAddress) {
+        case (?ilpAddress) {
+          let hop = await* _nextHop(ilpAddress);
+          //query fee for next canister to apply to amount
+          //build prepare packet and modify amount and time
+          let _packet = {
+            amount = packet.amount; //change amount to include fee;
+            expiresAt = packet.expiresAt; //reduce time by 5secs to account for consensus;
+            destination = packet.destination;
+            data = packet.data;
+          };
+          switch (hop) {
+            case (#BTC(address)) return Utils.createReject(ILP_Address, "Chain Not Supported", _packet.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
+            case (#ETH(address)) return Utils.createReject(ILP_Address, "Chain Not Supported", _packet.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
+            case (#ICP(canister)) await ConnectorService.service(canister).prepare(_packet);
+            case (#SOL(address)) return Utils.createReject(ILP_Address, "Chain Not Supported", _packet.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
+          };
+        };
+        case (_) return Utils.createReject(ILP_Address, "Peer Not Configured", packet.data, ILPErrorCodes.ILP_ERRORS.invalidPacket);
+      };
     };
   };
 
